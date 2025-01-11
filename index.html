@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AWS IVS Real-Time Viewer</title>
+    <script src="https://static.ivsrealtime.live-video.net/1.0.0/amazon-ivs-realtime.min.js"></script>
+  </head>
+  <body style="margin: 0; padding: 0; background-color: black">
+    <video
+      id="ivs-video"
+      autoplay
+      playsinline
+      style="width: 100%; height: 100%"
+    ></video>
+
+    <script>
+      (async function () {
+        // Extract the participation token from the URL query parameters
+        const urlParams = new URLSearchParams(window.location.search);
+        const participantToken = urlParams.get("participantToken");
+
+        if (!participantToken) {
+          console.error(
+            "Participant token is missing. Please provide it as a query parameter in the URL."
+          );
+          return;
+        }
+
+        try {
+          // Load the AWS IVS Real-Time SDK
+          const { Stage } = window.AmazonIVSRealTime;
+
+          // Create a stage instance with the participant token
+          const stage = Stage({ participantToken });
+
+          // Connect to the stage
+          await stage.connect();
+
+          // Access the remote participant stream
+          const remoteParticipants = stage.getParticipants();
+
+          if (remoteParticipants.length === 0) {
+            console.error("No participants found in the stage.");
+            return;
+          }
+
+          // Attach the first remote participant's video stream to the video element
+          const videoElement = document.getElementById("ivs-video");
+          remoteParticipants[0].video.attach(videoElement);
+
+          console.log(
+            "Connected to AWS IVS Real-Time Stage and displaying video."
+          );
+        } catch (error) {
+          console.error("Error connecting to AWS IVS Real-Time Stage:", error);
+        }
+      })();
+    </script>
+  </body>
+</html>
