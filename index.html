@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Amazon IVS Real-Time Streaming Web Sample</title>
+
+    <!-- Fonts and Styling -->
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css?family=Roboto:300,300italic,700,700italic"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/normalize/8.0.1/normalize.css"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/milligram/1.4.1/milligram.css"
+    />
+
+    <!-- Stages in Broadcast SDK -->
+    <script src="https://web-broadcast.live-video.net/1.19.0/amazon-ivs-web-broadcast.js"></script>
+  </head>
+  <body>
+    <header>
+      <h1>Amazon IVS Real-Time Streaming Web Sample (HTML and JavaScript)</h1>
+      <p id="loading-message">Loading stream...</p>
+    </header>
+    <hr />
+
+    <!-- Local Participant (Only for view, no camera/mic needed) -->
+    <div class="row local-container">
+      <div class="column" id="local-media"></div>
+    </div>
+
+    <hr style="margin-top: 5rem" />
+
+    <!-- Remote Participants -->
+    <div class="row">
+      <div id="remote-media"></div>
+    </div>
+
+    <!-- JavaScript to manage streaming -->
+    <script>
+      const {
+        Stage,
+        SubscribeType,
+        StageEvents,
+        ConnectionState,
+        StreamType,
+        LocalStageStream,
+      } = IVSBroadcastClient;
+
+      let stage;
+      let connected = false;
+
+      // Helper function to create video element for participants
+      function setupParticipant({ id }) {
+        const groupContainer = document.getElementById("remote-media");
+        const participantContainer = createContainer(id);
+        const videoEl = createVideoEl(id);
+        participantContainer.appendChild(videoEl);
+        groupContainer.appendChild(participantContainer);
+        return videoEl;
+      }
+
+      // Helper function to teardown participant video element
+      function teardownParticipant({ id }) {
+        const groupContainer = document.getElementById("remote-media");
+        const participantContainerId = id + "-container";
+        const participantDiv = document.getElementById(participantContainerId);
+        if (participantDiv) {
+          groupContainer.removeChild(participantDiv);
+        }
+      }
+
+      function createVideoEl(id) {
+        const videoEl = document.createElement("video");
+        videoEl.id = id;
+        videoEl.autoplay = true;
+        videoEl.playsInline = true;
+        videoEl.srcObject = new MediaStream();
+        return videoEl;
+      }
+
+      function createContainer(id) {
+        const participantContainer = document.createElement("div");
+        participantContainer.classList = "participant-container";
+        participantContainer.id = id + "-container";
+        return participantContainer;
+      }
+
+      // Join Stage Function
+      const joinStage = async (token) => {
+        if (!token) {
+          document.getElementById("loading-message").textContent =
+            "Token is missing. Cannot join the stage.";
+          return;
+        }
+
+        stage = new Stage(token, {
+          stageStreamsToPublish: () => [],
+          shouldPublishParticipant: () => false, // No need to publish media, only view
+          shouldSubscribeToParticipant: () => SubscribeType.AUDIO_VIDEO,
+        });
+
+        stage.on(StageEvents.STAGE_CONNECTION_STATE_CHANGED, (state) => {
+          connected = state === ConnectionState.CONNECTED;
+        });
+
+        stage.on(
+          StageEvents.STAGE_PARTICIPANT_STREAMS_ADDED,
+          (participant, streams) => {
+            if (!participant.isLocal) {
+              const videoEl = setupParticipant(participant);
+              streams.forEach((stream) => {
+                if (stream.streamType === StreamType.VIDEO) {
+                  videoEl.srcObject.addTrack(stream.mediaStreamTrack);
+                }
+              });
+            }
+          }
+        );
+
+        stage.on(StageEvents.STAGE_PARTICIPANT_LEFT, (participant) => {
+          teardownParticipant(participant);
+        });
+
+        try {
+          await stage.join();
+          document.getElementById("loading-message").textContent =
+            "Stream loaded successfully!";
+        } catch (err) {
+          console.error(err.message);
+          document.getElementById("loading-message").textContent =
+            "Error loading stream.";
+        }
+      };
+
+      // Function to get the token from URL query parameters
+      const getTokenFromUrl = () => {
+        const urlParams = new URLSearchParams(window.location.search);
+        return urlParams.get("token");
+      };
+
+      // On page load, try to join the stage with the token from the URL
+      const token = getTokenFromUrl();
+      if (token) {
+        joinStage(token);
+      } else {
+        document.getElementById("loading-message").textContent =
+          "Token is missing. Cannot join the stage.";
+      }
+    </script>
+  </body>
+</html>
