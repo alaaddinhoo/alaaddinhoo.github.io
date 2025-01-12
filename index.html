@@ -28,23 +28,19 @@
         width: 100%;
         height: auto;
       }
-      #start-video {
+      #loading-message {
         margin-top: 2rem;
-        padding: 10px 20px;
-        font-size: 1rem;
-        cursor: pointer;
+        font-size: 1.2rem;
+        color: #555;
       }
     </style>
   </head>
   <body>
     <header>
       <h1>Amazon IVS Real-Time Streaming Web Sample (HTML and JavaScript)</h1>
-      <p id="loading-message">Please click "Start Video" to load the stream.</p>
+      <p id="loading-message">Loading the stream...</p>
     </header>
     <hr />
-
-    <!-- Start Video Button -->
-    <button id="start-video">Start Video</button>
 
     <!-- Local Participant (Only for view, no camera/mic needed) -->
     <div class="row local-container">
@@ -172,15 +168,14 @@
         return urlParams.get("token");
       };
 
-      // Add event listener to the Start Video button
-      const startButton = document.getElementById("start-video");
-      startButton.addEventListener("click", () => {
+      // Automatically join the stage when the page loads
+      window.addEventListener("DOMContentLoaded", () => {
         const token = getTokenFromUrl();
         if (token) {
           joinStage(token);
-          startButton.style.display = "none"; // Hide the button after interaction
         } else {
-          alert("Token is missing. Cannot join the stage.");
+          document.getElementById("loading-message").textContent =
+            "Token is missing. Cannot join the stage.";
         }
       });
     </script>
