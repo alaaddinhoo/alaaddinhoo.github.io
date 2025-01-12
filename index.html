@@ -24,34 +24,50 @@
     <script src="https://web-broadcast.live-video.net/1.19.0/amazon-ivs-web-broadcast.js"></script>
 
     <style>
-      video {
-        width: 100%;
-        height: auto;
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
       }
+
+      body,
+      html {
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+      }
+
+      #remote-media {
+        width: 100%;
+        height: 100%;
+        position: relative;
+      }
+
+      video {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+
       #loading-message {
-        margin-top: 2rem;
-        font-size: 1.2rem;
-        color: #555;
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        font-size: 1.5rem;
+        color: white;
+        background: rgba(0, 0, 0, 0.7);
+        padding: 1rem 2rem;
+        border-radius: 8px;
       }
     </style>
   </head>
   <body>
-    <header>
-      <h1>Amazon IVS Real-Time Streaming Web Sample (HTML and JavaScript)</h1>
+    <div id="remote-media">
       <p id="loading-message">Loading the stream...</p>
-    </header>
-    <hr />
-
-    <!-- Local Participant (Only for view, no camera/mic needed) -->
-    <div class="row local-container">
-      <div class="column" id="local-media"></div>
-    </div>
-
-    <hr style="margin-top: 5rem" />
-
-    <!-- Remote Participants -->
-    <div class="row">
-      <div id="remote-media"></div>
     </div>
 
     <!-- JavaScript to manage streaming -->
@@ -65,20 +81,17 @@
       // Helper function to create video element for participants
       function setupParticipant({ id }) {
         const groupContainer = document.getElementById("remote-media");
-        const participantContainer = createContainer(id);
         const videoEl = createVideoEl(id);
-        participantContainer.appendChild(videoEl);
-        groupContainer.appendChild(participantContainer);
+        groupContainer.appendChild(videoEl);
         return videoEl;
       }
 
       // Helper function to teardown participant video element
       function teardownParticipant({ id }) {
         const groupContainer = document.getElementById("remote-media");
-        const participantContainerId = id + "-container";
-        const participantDiv = document.getElementById(participantContainerId);
-        if (participantDiv) {
-          groupContainer.removeChild(participantDiv);
+        const videoEl = document.getElementById(id);
+        if (videoEl) {
+          groupContainer.removeChild(videoEl);
         }
       }
 
@@ -91,13 +104,6 @@
         videoEl.controls = true; // Add controls for unmute/volume adjustment
         videoEl.srcObject = new MediaStream();
         return videoEl;
-      }
-
-      function createContainer(id) {
-        const participantContainer = document.createElement("div");
-        participantContainer.classList = "participant-container";
-        participantContainer.id = id + "-container";
-        return participantContainer;
       }
 
       // Join Stage Function
@@ -131,17 +137,32 @@
                       stream.mediaStreamTrack,
                     ]);
                     videoEl.srcObject = mediaStream;
-                    videoEl.play().catch((err) => {
-                      console.error("Error starting video playback", err);
-                      alert(
-                        "Please interact with the page to start video playback."
-                      );
+
+                    // Attempt to play the video and handle unmute
+                    videoEl
+                      .play()
+                      .then(() => {
+                        console.log("Video playback started");
+                        videoEl.muted = true; // Keep muted initially
+                      })
+                      .catch((err) => {
+                        console.error("Error starting video playback", err);
+                        alert(
+                          "Please interact with the page to start video playback."
+                        );
+                      });
+
+                    // Allow unmuting after user interaction
+                    videoEl.addEventListener("click", () => {
+                      videoEl.muted = false; // Unmute
+                      videoEl.volume = 1.0; // Set volume to max
                     });
                   } else {
                     console.error("No mediaStreamTrack found in the stream.");
                   }
                 }
               });
+              document.getElementById("loading-message").style.display = "none";
             }
           }
         );
@@ -164,7 +185,6 @@
       // Function to get the token from URL query parameters
       const getTokenFromUrl = () => {
         const urlParams = new URLSearchParams(window.location.search);
-        console.log("Full URL:", window.location.href); // Log the full URL
         return urlParams.get("token");
       };
 
