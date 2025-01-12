@@ -158,6 +158,7 @@
       // Function to get the token from URL query parameters
       const getTokenFromUrl = () => {
         const urlParams = new URLSearchParams(window.location.search);
+        console.log("Full URL:", window.location.href); // Log the full URL
         return urlParams.get("token");
       };
 
