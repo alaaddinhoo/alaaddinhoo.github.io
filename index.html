@@ -28,14 +28,23 @@
         width: 100%;
         height: auto;
       }
+      #start-video {
+        margin-top: 2rem;
+        padding: 10px 20px;
+        font-size: 1rem;
+        cursor: pointer;
+      }
     </style>
   </head>
   <body>
     <header>
       <h1>Amazon IVS Real-Time Streaming Web Sample (HTML and JavaScript)</h1>
-      <p id="loading-message">Loading stream...</p>
+      <p id="loading-message">Please click "Start Video" to load the stream.</p>
     </header>
     <hr />
+
+    <!-- Start Video Button -->
+    <button id="start-video">Start Video</button>
 
     <!-- Local Participant (Only for view, no camera/mic needed) -->
     <div class="row local-container">
@@ -51,14 +60,8 @@
 
     <!-- JavaScript to manage streaming -->
     <script>
-      const {
-        Stage,
-        SubscribeType,
-        StageEvents,
-        ConnectionState,
-        StreamType,
-        LocalStageStream,
-      } = IVSBroadcastClient;
+      const { Stage, SubscribeType, StageEvents, ConnectionState, StreamType } =
+        IVSBroadcastClient;
 
       let stage;
       let connected = false;
@@ -88,6 +91,8 @@
         videoEl.id = id;
         videoEl.autoplay = true;
         videoEl.playsInline = true;
+        videoEl.muted = true; // Start muted to allow autoplay
+        videoEl.controls = true; // Add controls for unmute/volume adjustment
         videoEl.srcObject = new MediaStream();
         return videoEl;
       }
@@ -125,11 +130,16 @@
               streams.forEach((stream) => {
                 if (stream.streamType === StreamType.VIDEO) {
                   console.log("Stream details:", stream);
-                  console.log("Video element:", videoEl);
                   if (stream.mediaStreamTrack) {
-                    videoEl.srcObject.addTrack(stream.mediaStreamTrack);
+                    const mediaStream = new MediaStream([
+                      stream.mediaStreamTrack,
+                    ]);
+                    videoEl.srcObject = mediaStream;
                     videoEl.play().catch((err) => {
                       console.error("Error starting video playback", err);
+                      alert(
+                        "Please interact with the page to start video playback."
+                      );
                     });
                   } else {
                     console.error("No mediaStreamTrack found in the stream.");
@@ -162,14 +172,17 @@
         return urlParams.get("token");
       };
 
-      // On page load, try to join the stage with the token from the URL
-      const token = getTokenFromUrl();
-      if (token) {
-        joinStage(token);
-      } else {
-        document.getElementById("loading-message").textContent =
-          "Token is missing. Cannot join the stage.";
-      }
+      // Add event listener to the Start Video button
+      const startButton = document.getElementById("start-video");
+      startButton.addEventListener("click", () => {
+        const token = getTokenFromUrl();
+        if (token) {
+          joinStage(token);
+          startButton.style.display = "none"; // Hide the button after interaction
+        } else {
+          alert("Token is missing. Cannot join the stage.");
+        }
+      });
     </script>
   </body>
 </html>
