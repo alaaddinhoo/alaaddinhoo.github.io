@@ -102,7 +102,6 @@
         videoEl.playsInline = true;
         videoEl.muted = true; // Start muted to allow autoplay
         videoEl.controls = true; // Add controls for unmute/volume adjustment
-        videoEl.srcObject = new MediaStream();
         return videoEl;
       }
 
@@ -136,6 +135,15 @@
                     const mediaStream = new MediaStream([
                       stream.mediaStreamTrack,
                     ]);
+
+                    // Add audio track if it exists
+                    const audioTrack = streams.find(
+                      (s) => s.streamType === StreamType.AUDIO
+                    )?.mediaStreamTrack;
+                    if (audioTrack) {
+                      mediaStream.addTrack(audioTrack);
+                    }
+
                     videoEl.srcObject = mediaStream;
 
                     // Attempt to play the video and handle unmute
