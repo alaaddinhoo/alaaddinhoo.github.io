@@ -78,31 +78,29 @@
       let stage;
       let connected = false;
 
-      // Helper function to create video element for participants
-      function setupParticipant({ id }) {
+      // Helper function to create audio element for participants
+      function setupParticipantAudio({ id }) {
         const groupContainer = document.getElementById("remote-media");
-        const videoEl = createVideoEl(id);
-        groupContainer.appendChild(videoEl);
-        return videoEl;
+        const audioEl = createAudioEl(id);
+        groupContainer.appendChild(audioEl);
+        return audioEl;
       }
 
-      // Helper function to teardown participant video element
+      // Helper function to teardown participant audio element
       function teardownParticipant({ id }) {
         const groupContainer = document.getElementById("remote-media");
-        const videoEl = document.getElementById(id);
-        if (videoEl) {
-          groupContainer.removeChild(videoEl);
+        const audioEl = document.getElementById(id);
+        if (audioEl) {
+          groupContainer.removeChild(audioEl);
         }
       }
 
-      function createVideoEl(id) {
-        const videoEl = document.createElement("video");
-        videoEl.id = id;
-        videoEl.autoplay = true;
-        videoEl.playsInline = true;
-        videoEl.muted = true; // Start muted to allow autoplay
-        videoEl.controls = true; // Add controls for unmute/volume adjustment
-        return videoEl;
+      function createAudioEl(id) {
+        const audioEl = document.createElement("audio");
+        audioEl.id = id;
+        audioEl.autoplay = true;
+        audioEl.controls = true; // Add controls for mute/unmute and volume adjustment
+        return audioEl;
       }
 
       // Join Stage Function
@@ -114,9 +112,9 @@
         }
 
         stage = new Stage(token, {
-          stageStreamsToPublish: () => [],
-          shouldPublishParticipant: () => false, // No need to publish media, only view
-          shouldSubscribeToParticipant: () => SubscribeType.AUDIO_VIDEO,
+          stageStreamsToPublish: () => [], // No publishing required
+          shouldPublishParticipant: () => false, // Not publishing media
+          shouldSubscribeToParticipant: () => SubscribeType.AUDIO, // Only subscribe to audio
         });
 
         stage.on(StageEvents.STAGE_CONNECTION_STATE_CHANGED, (state) => {
@@ -127,49 +125,31 @@
           StageEvents.STAGE_PARTICIPANT_STREAMS_ADDED,
           (participant, streams) => {
             if (!participant.isLocal) {
-              const videoEl = setupParticipant(participant);
-              streams.forEach((stream) => {
-                if (stream.streamType === StreamType.VIDEO) {
-                  console.log("Stream details:", stream);
-                  if (stream.mediaStreamTrack) {
-                    const mediaStream = new MediaStream([
-                      stream.mediaStreamTrack,
-                    ]);
+              const audioEl = setupParticipantAudio(participant);
+              const audioStream = streams.find(
+                (stream) => stream.streamType === StreamType.AUDIO
+              );
+              if (audioStream && audioStream.mediaStreamTrack) {
+                const mediaStream = new MediaStream([
+                  audioStream.mediaStreamTrack,
+                ]);
+                audioEl.srcObject = mediaStream;
 
-                    // Add audio track if it exists
-                    const audioTrack = streams.find(
-                      (s) => s.streamType === StreamType.AUDIO
-                    )?.mediaStreamTrack;
-                    if (audioTrack) {
-                      mediaStream.addTrack(audioTrack);
-                    }
-
-                    videoEl.srcObject = mediaStream;
-
-                    // Attempt to play the video and handle unmute
-                    videoEl
-                      .play()
-                      .then(() => {
-                        console.log("Video playback started");
-                        videoEl.muted = true; // Keep muted initially
-                      })
-                      .catch((err) => {
-                        console.error("Error starting video playback", err);
-                        alert(
-                          "Please interact with the page to start video playback."
-                        );
-                      });
-
-                    // Allow unmuting after user interaction
-                    videoEl.addEventListener("click", () => {
-                      videoEl.muted = false; // Unmute
-                      videoEl.volume = 1.0; // Set volume to max
-                    });
-                  } else {
-                    console.error("No mediaStreamTrack found in the stream.");
-                  }
-                }
-              });
+                // Attempt to play the audio
+                audioEl
+                  .play()
+                  .then(() => {
+                    console.log("Audio playback started");
+                  })
+                  .catch((err) => {
+                    console.error("Error starting audio playback", err);
+                    alert(
+                      "Please interact with the page to start audio playback."
+                    );
+                  });
+              } else {
+                console.error("No audio stream found for the participant.");
+              }
               document.getElementById("loading-message").style.display = "none";
             }
           }
