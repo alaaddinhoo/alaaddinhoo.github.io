@@ -6,187 +6,97 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Amazon IVS Real-Time Streaming Web Sample</title>
 
-    <!-- Fonts and Styling -->
-    <link
-      rel="stylesheet"
-      href="https://fonts.googleapis.com/css?family=Roboto:300,300italic,700,700italic"
-    />
-    <link
-      rel="stylesheet"
-      href="https://cdnjs.cloudflare.com/ajax/libs/normalize/8.0.1/normalize.css"
-    />
-    <link
-      rel="stylesheet"
-      href="https://cdnjs.cloudflare.com/ajax/libs/milligram/1.4.1/milligram.css"
-    />
+    <!-- Ionicons -->
+    <script src="https://unpkg.com/ionicons@4.5.10-0/dist/ionicons.js"></script>
 
-    <!-- Stages in Broadcast SDK -->
+    <!-- Amazon IVS Web Broadcast SDK -->
     <script src="https://web-broadcast.live-video.net/1.19.0/amazon-ivs-web-broadcast.js"></script>
 
     <style>
-      * {
+      html,
+      body {
         margin: 0;
         padding: 0;
-        box-sizing: border-box;
-      }
-
-      body,
-      html {
-        width: 100%;
-        height: 100%;
-        overflow: hidden;
-      }
-
-      #remote-media {
+        background: transparent;
         display: flex;
-        justify-content: center; /* Center the audio element horizontally */
-        align-items: center; /* Center the audio element vertically */
-        width: 100%;
+        align-items: center;
+        justify-content: center;
         height: 100%;
+        width: 100%;
       }
 
-      video {
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        object-fit: cover;
-      }
-
-      #loading-message {
-        position: absolute;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
-        font-size: 1.5rem;
-        color: white;
-        background: rgba(0, 0, 0, 0.7);
-        padding: 1rem 2rem;
-        border-radius: 8px;
+      ion-icon {
+        font-size: 64px; /* size of icon */
+        cursor: pointer;
+        color: black; /* change if you want */
       }
     </style>
   </head>
   <body>
-    <div id="remote-media">
-      <p id="loading-message">Loading the stream...</p>
-    </div>
+    <!-- Default icon: muted -->
+    <ion-icon id="audio-toggle" name="volume-mute"></ion-icon>
 
-    <!-- JavaScript to manage streaming -->
     <script>
       const { Stage, SubscribeType, StageEvents, ConnectionState, StreamType } =
         IVSBroadcastClient;
 
       let stage;
-      let connected = false;
-
-      // Helper function to create audio element for participants
-      function setupParticipantAudio({ id }) {
-        const groupContainer = document.getElementById("remote-media");
-        const audioEl = createAudioEl(id);
-        groupContainer.appendChild(audioEl);
-        return audioEl;
-      }
-
-      // Helper function to teardown participant audio element
-      function teardownParticipant({ id }) {
-        const groupContainer = document.getElementById("remote-media");
-        const audioEl = document.getElementById(id);
-        if (audioEl) {
-          groupContainer.removeChild(audioEl);
-        }
-      }
-
-      function createAudioEl(id) {
-        const audioEl = document.createElement("audio");
-        audioEl.id = id;
-        audioEl.autoplay = true;
-        audioEl.controls = true; // Add controls for mute/unmute and volume adjustment
-        return audioEl;
-      }
+      let audioElement;
+      let isMuted = true;
 
       // Join Stage Function
       const joinStage = async (token) => {
-        if (!token) {
-          document.getElementById("loading-message").textContent =
-            "Token is missing. Cannot join the stage.";
-          return;
-        }
-
         stage = new Stage(token, {
-          stageStreamsToPublish: () => [], // No publishing required
-          shouldPublishParticipant: () => false, // Not publishing media
-          shouldSubscribeToParticipant: () => SubscribeType.AUDIO, // Only subscribe to audio
-        });
-
-        stage.on(StageEvents.STAGE_CONNECTION_STATE_CHANGED, (state) => {
-          connected = state === ConnectionState.CONNECTED;
+          stageStreamsToPublish: () => [],
+          shouldPublishParticipant: () => false,
+          shouldSubscribeToParticipant: () => SubscribeType.AUDIO,
         });
 
         stage.on(
           StageEvents.STAGE_PARTICIPANT_STREAMS_ADDED,
           (participant, streams) => {
             if (!participant.isLocal) {
-              const audioEl = setupParticipantAudio(participant);
               const audioStream = streams.find(
-                (stream) => stream.streamType === StreamType.AUDIO
+                (s) => s.streamType === StreamType.AUDIO
               );
               if (audioStream && audioStream.mediaStreamTrack) {
-                const mediaStream = new MediaStream([
+                audioElement = document.createElement("audio");
+                audioElement.autoplay = true;
+                audioElement.srcObject = new MediaStream([
                   audioStream.mediaStreamTrack,
                 ]);
-                audioEl.srcObject = mediaStream;
-
-                // Attempt to play the audio
-                audioEl
-                  .play()
-                  .then(() => {
-                    console.log("Audio playback started");
-                  })
-                  .catch((err) => {
-                    console.error("Error starting audio playback", err);
-                    // alert(
-                    //   "Please interact with the page to start audio playback."
-                    // );
-                  });
-              } else {
-                console.error("No audio stream found for the participant.");
+                audioElement.muted = true; // start muted
               }
-              document.getElementById("loading-message").style.display = "none";
             }
           }
         );
 
-        stage.on(StageEvents.STAGE_PARTICIPANT_LEFT, (participant) => {
-          teardownParticipant(participant);
-        });
-
         try {
           await stage.join();
-          document.getElementById("loading-message").textContent =
-            "Stream loaded successfully!";
         } catch (err) {
-          console.error(err.message);
-          document.getElementById("loading-message").textContent =
-            "Error loading stream.";
+          console.error("Error joining stage:", err);
         }
       };
 
-      // Function to get the token from URL query parameters
+      // Token from query string
       const getTokenFromUrl = () => {
         const urlParams = new URLSearchParams(window.location.search);
         return urlParams.get("token");
       };
 
-      // Automatically join the stage when the page loads
       window.addEventListener("DOMContentLoaded", () => {
         const token = getTokenFromUrl();
-        if (token) {
-          joinStage(token);
-        } else {
-          document.getElementById("loading-message").textContent =
-            "Token is missing. Cannot join the stage.";
-        }
+        if (token) joinStage(token);
+
+        const icon = document.getElementById("audio-toggle");
+
+        icon.addEventListener("click", () => {
+          if (!audioElement) return;
+
+          isMuted = !isMuted;
+          audioElement.muted = isMuted;
+          icon.setAttribute("name", isMuted ? "volume-mute" : "volume-high");
+        });
       });
     </script>
   </body>
