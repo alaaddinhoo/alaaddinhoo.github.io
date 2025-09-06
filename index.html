@@ -29,20 +29,23 @@
         font-size: 64px; /* size of icon */
         cursor: pointer;
         color: black; /* change if you want */
+        display: none; /* start hidden */
       }
     </style>
   </head>
   <body>
-    <!-- Default icon: muted -->
+    <!-- Icon starts hidden -->
     <ion-icon id="audio-toggle" name="volume-mute"></ion-icon>
 
     <script>
-      const { Stage, SubscribeType, StageEvents, ConnectionState, StreamType } =
+      const { Stage, SubscribeType, StageEvents, StreamType } =
         IVSBroadcastClient;
 
       let stage;
       let audioElement;
       let isMuted = true;
+
+      const icon = document.getElementById("audio-toggle");
 
       // Join Stage Function
       const joinStage = async (token) => {
@@ -59,6 +62,7 @@
               const audioStream = streams.find(
                 (s) => s.streamType === StreamType.AUDIO
               );
+
               if (audioStream && audioStream.mediaStreamTrack) {
                 audioElement = document.createElement("audio");
                 audioElement.autoplay = true;
@@ -66,6 +70,10 @@
                   audioStream.mediaStreamTrack,
                 ]);
                 audioElement.muted = true; // start muted
+
+                // Show muted icon when audio is ready
+                icon.style.display = "block";
+                icon.setAttribute("name", "volume-mute");
               }
             }
           }
@@ -87,8 +95,6 @@
       window.addEventListener("DOMContentLoaded", () => {
         const token = getTokenFromUrl();
         if (token) joinStage(token);
-
-        const icon = document.getElementById("audio-toggle");
 
         icon.addEventListener("click", () => {
           if (!audioElement) return;
