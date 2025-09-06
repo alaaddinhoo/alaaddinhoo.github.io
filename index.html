@@ -55,6 +55,7 @@
           shouldSubscribeToParticipant: () => SubscribeType.AUDIO,
         });
 
+        // When audio is added
         stage.on(
           StageEvents.STAGE_PARTICIPANT_STREAMS_ADDED,
           (participant, streams) => {
@@ -71,13 +72,35 @@
                 ]);
                 audioElement.muted = true; // start muted
 
-                // Show muted icon when audio is ready
+                // Show muted icon
                 icon.style.display = "block";
                 icon.setAttribute("name", "volume-mute");
+                isMuted = true;
               }
             }
           }
         );
+
+        // When audio is removed
+        stage.on(
+          StageEvents.STAGE_PARTICIPANT_STREAMS_REMOVED,
+          (participant, streams) => {
+            const removedAudio = streams.find(
+              (s) => s.streamType === StreamType.AUDIO
+            );
+            if (removedAudio) {
+              // Hide icon and clean up audio element
+              icon.style.display = "none";
+              audioElement = null;
+            }
+          }
+        );
+
+        // Also handle participant leaving (backup cleanup)
+        stage.on(StageEvents.STAGE_PARTICIPANT_LEFT, (participant) => {
+          icon.style.display = "none";
+          audioElement = null;
+        });
 
         try {
           await stage.join();
