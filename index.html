@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta http-equiv="X-UA-Compatible" content="IE=edge" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Amazon IVS Real-Time Streaming Web Sample</title>
+    <title>Amazon IVS Audio Stream</title>
 
     <!-- Ionicons -->
     <script src="https://unpkg.com/ionicons@4.5.10-0/dist/ionicons.js"></script>
@@ -23,29 +23,74 @@
         justify-content: center;
         height: 100%;
         width: 100%;
+        font-family: Arial, sans-serif;
+      }
+
+      .container {
+        text-align: center;
       }
 
       ion-icon {
-        font-size: 64px; /* size of icon */
+        font-size: 64px;
         cursor: pointer;
-        color: black; /* change if you want */
-        display: none; /* start hidden */
+        color: #333;
+        transition: all 0.2s ease;
+      }
+
+      ion-icon:hover {
+        transform: scale(1.1);
+      }
+
+      #status {
+        margin-top: 15px;
+        font-size: 16px;
+        color: #666;
+      }
+
+      .volume-high {
+        color: #4caf50;
+      }
+
+      .volume-mute {
+        color: #f44336;
       }
     </style>
   </head>
   <body>
-    <!-- Icon starts hidden -->
-    <ion-icon id="audio-toggle" name="volume-mute"></ion-icon>
+    <div class="container">
+      <!-- Icon starts hidden -->
+      <ion-icon
+        id="audio-toggle"
+        name="volume-mute"
+        class="volume-mute"
+      ></ion-icon>
+      <div id="status">Connecting...</div>
+    </div>
 
     <script>
-      const { Stage, SubscribeType, StageEvents, StreamType } =
+      const { Stage, SubscribeType, StageEvents, StreamType, ConnectionState } =
         IVSBroadcastClient;
 
       let stage;
       let audioElement;
       let isMuted = true;
+      let mediaStream = null;
 
       const icon = document.getElementById("audio-toggle");
+      const statusEl = document.getElementById("status");
+
+      // Create audio element once
+      function createAudioElement() {
+        if (audioElement) return audioElement;
+
+        audioElement = document.createElement("audio");
+        audioElement.autoplay = true;
+        audioElement.muted = true; // Start muted
+        audioElement.setAttribute("playsinline", "true");
+        document.body.appendChild(audioElement);
+
+        return audioElement;
+      }
 
       // Join Stage Function
       const joinStage = async (token) => {
@@ -53,6 +98,17 @@
           stageStreamsToPublish: () => [],
           shouldPublishParticipant: () => false,
           shouldSubscribeToParticipant: () => SubscribeType.AUDIO,
+        });
+
+        // Handle connection state changes
+        stage.on(StageEvents.STAGE_CONNECTION_STATE_CHANGED, (state) => {
+          console.log("Connection state:", state);
+          if (state === ConnectionState.CONNECTED) {
+            statusEl.textContent = "Connected - Click to unmute";
+          } else if (state === ConnectionState.DISCONNECTED) {
+            statusEl.textContent = "Disconnected";
+            icon.style.display = "none";
+          }
         });
 
         // When audio is added
@@ -65,17 +121,19 @@
               );
 
               if (audioStream && audioStream.mediaStreamTrack) {
-                audioElement = document.createElement("audio");
-                audioElement.autoplay = true;
-                audioElement.srcObject = new MediaStream([
-                  audioStream.mediaStreamTrack,
-                ]);
-                audioElement.muted = true; // start muted
+                mediaStream = new MediaStream([audioStream.mediaStreamTrack]);
+                const audioEl = createAudioElement();
+                audioEl.srcObject = mediaStream;
 
                 // Show muted icon
                 icon.style.display = "block";
-                icon.setAttribute("name", "volume-mute");
-                isMuted = true;
+                statusEl.textContent = "Connected - Click to unmute";
+
+                // Try to play the audio (may fail due to browser policies)
+                audioEl.play().catch((err) => {
+                  console.log("Autoplay prevented:", err);
+                  statusEl.textContent = "Connected - Click to unmute and play";
+                });
               }
             }
           }
@@ -89,23 +147,32 @@
               (s) => s.streamType === StreamType.AUDIO
             );
             if (removedAudio) {
-              // Hide icon and clean up audio element
+              statusEl.textContent = "No active audio stream";
               icon.style.display = "none";
-              audioElement = null;
+              if (audioElement) {
+                audioElement.srcObject = null;
+              }
             }
           }
         );
 
-        // Also handle participant leaving (backup cleanup)
+        // Also handle participant leaving
         stage.on(StageEvents.STAGE_PARTICIPANT_LEFT, (participant) => {
-          icon.style.display = "none";
-          audioElement = null;
+          if (!participant.isLocal) {
+            statusEl.textContent = "Participant left";
+            icon.style.display = "none";
+            if (audioElement) {
+              audioElement.srcObject = null;
+            }
+          }
         });
 
         try {
           await stage.join();
+          console.log("Successfully joined stage");
         } catch (err) {
           console.error("Error joining stage:", err);
+          statusEl.textContent = "Error connecting: " + err.message;
         }
       };
 
@@ -115,17 +182,44 @@
         return urlParams.get("token");
       };
 
+      // Toggle audio function
+      function toggleAudio() {
+        if (!audioElement || !mediaStream) {
+          statusEl.textContent = "No audio available";
+          return;
+        }
+
+        isMuted = !isMuted;
+        audioElement.muted = isMuted;
+
+        if (isMuted) {
+          icon.setAttribute("name", "volume-mute");
+          icon.classList.remove("volume-high");
+          icon.classList.add("volume-mute");
+          statusEl.textContent = "Muted";
+        } else {
+          icon.setAttribute("name", "volume-high");
+          icon.classList.remove("volume-mute");
+          icon.classList.add("volume-high");
+          statusEl.textContent = "Playing";
+
+          // Try to play if not already playing
+          audioElement.play().catch((err) => {
+            console.log("Play failed:", err);
+            statusEl.textContent = "Click again to play";
+          });
+        }
+      }
+
       window.addEventListener("DOMContentLoaded", () => {
         const token = getTokenFromUrl();
-        if (token) joinStage(token);
+        if (token) {
+          joinStage(token);
+        } else {
+          statusEl.textContent = "Missing token parameter";
+        }
 
-        icon.addEventListener("click", () => {
-          if (!audioElement) return;
-
-          isMuted = !isMuted;
-          audioElement.muted = isMuted;
-          icon.setAttribute("name", isMuted ? "volume-mute" : "volume-high");
-        });
+        icon.addEventListener("click", toggleAudio);
       });
     </script>
   </body>
