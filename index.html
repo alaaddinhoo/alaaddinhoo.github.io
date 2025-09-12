@@ -157,15 +157,15 @@
         );
 
         // Also handle participant leaving
-        stage.on(StageEvents.STAGE_PARTICIPANT_LEFT, (participant) => {
-          if (!participant.isLocal) {
-            statusEl.textContent = "Participant left";
-            icon.style.display = "none";
-            if (audioElement) {
-              audioElement.srcObject = null;
-            }
-          }
-        });
+        // stage.on(StageEvents.STAGE_PARTICIPANT_LEFT, (participant) => {
+        //   if (!participant.isLocal) {
+        //     statusEl.textContent = "Participant left";
+        //     icon.style.display = "none";
+        //     if (audioElement) {
+        //       audioElement.srcObject = null;
+        //     }
+        //   }
+        // });
 
         try {
           await stage.join();
