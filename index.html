@@ -21,13 +21,16 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        height: 100%;
-        width: 100%;
         font-family: Arial, sans-serif;
+        height: 100%;
       }
 
       .container {
         text-align: center;
+      }
+
+      video {
+        width: 100%;
       }
 
       ion-icon {
@@ -41,11 +44,7 @@
   <body>
     <div class="container">
       <!-- Icon starts hidden -->
-      <ion-icon
-        id="audio-toggle"
-        name="volume-mute"
-        class="volume-mute"
-      ></ion-icon>
+      <ion-icon id="audio-toggle" name="volume-mute"></ion-icon>
       <!-- <div id="status">Connecting...</div> -->
     </div>
 
