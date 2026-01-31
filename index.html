@@ -5,10 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>IVS Auction Audio</title>
 
-    <!-- Ionicons -->
     <script src="https://unpkg.com/ionicons@4.5.10-0/dist/ionicons.js"></script>
-
-    <!-- Amazon IVS -->
     <script src="https://web-broadcast.live-video.net/1.19.0/amazon-ivs-web-broadcast.js"></script>
 
     <style>
@@ -55,32 +52,31 @@
 
       const icon = document.getElementById("audio-icon");
 
-      let audioElement = null;
-      let mediaStream = null;
-
+      let audioEl = null;
       let audioContext = null;
       let analyser = null;
       let dataArray = null;
 
-      let hasStream = false;
+      let hasParticipant = false;
+      let hasAudioStream = false;
       let isClientMuted = true;
       let silenceTimer = null;
 
       const SILENCE_THRESHOLD = 25;
       const SILENCE_DELAY = 1000;
 
-      /* ---------------- ICON STATES ---------------- */
+      /* ---------------- UI STATES ---------------- */
 
       function showMuted() {
         icon.style.display = "block";
         icon.className = "muted";
-        icon.setAttribute("name", "volume-off"); // 🔇 speaker ❌
+        icon.setAttribute("name", "volume-off");
       }
 
       function showLive() {
         icon.style.display = "block";
         icon.className = "live";
-        icon.setAttribute("name", "volume-high"); // 🔊
+        icon.setAttribute("name", "volume-high");
       }
 
       function hideIcon() {
@@ -90,7 +86,7 @@
 
       /* ---------------- AUDIO ANALYSIS ---------------- */
 
-      function setupAudioAnalysis(stream) {
+      function setupAnalyser(stream) {
         audioContext = new (window.AudioContext ||
           window.webkitAudioContext)();
 
@@ -101,12 +97,11 @@
         source.connect(analyser);
 
         dataArray = new Uint8Array(analyser.frequencyBinCount);
-
         monitorVolume();
       }
 
       function monitorVolume() {
-        if (!hasStream || !analyser) return;
+        if (!hasAudioStream || !analyser) return;
 
         analyser.getByteFrequencyData(dataArray);
         const avg =
@@ -126,28 +121,25 @@
         requestAnimationFrame(monitorVolume);
       }
 
-      /* ---------------- USER CLICK (UNLOCK AUDIO) ---------------- */
+      /* ---------------- USER CLICK ---------------- */
 
       icon.addEventListener("click", async () => {
-        if (!audioElement) return;
+        if (!audioEl) return;
 
         isClientMuted = !isClientMuted;
-        audioElement.muted = isClientMuted;
+        audioEl.muted = isClientMuted;
 
         if (!isClientMuted) {
-          if (audioContext && audioContext.state === "suspended") {
+          if (audioContext?.state === "suspended") {
             await audioContext.resume();
           }
-
           try {
-            await audioElement.play();
-          } catch (e) {
-            console.log("Audio play blocked:", e);
-          }
+            await audioEl.play();
+          } catch {}
         }
       });
 
-      /* ---------------- IVS STAGE ---------------- */
+      /* ---------------- STAGE ---------------- */
 
       async function joinStage(token) {
         const stage = new Stage(token, {
@@ -156,60 +148,64 @@
           shouldSubscribeToParticipant: () => SubscribeType.AUDIO,
         });
 
+        // ✅ Participant exists (even if mic muted)
+        stage.on(StageEvents.STAGE_PARTICIPANT_JOINED, (participant) => {
+          if (participant.isLocal) return;
+          hasParticipant = true;
+          showMuted(); // SHOW ICON IMMEDIATELY
+        });
+
+        // ✅ Audio actually starts
         stage.on(
           StageEvents.STAGE_PARTICIPANT_STREAMS_ADDED,
           (participant, streams) => {
+            if (participant.isLocal) return;
+
             const audioStream = streams.find(
               (s) => s.streamType === StreamType.AUDIO
             );
-
             if (!audioStream) return;
 
-            hasStream = true;
+            hasAudioStream = true;
 
-            mediaStream = new MediaStream([
+            const stream = new MediaStream([
               audioStream.mediaStreamTrack,
             ]);
 
-            audioElement = document.createElement("audio");
-            audioElement.srcObject = mediaStream;
-            audioElement.autoplay = true;
-            audioElement.muted = true; // 🔒 locked until click
-            audioElement.playsInline = true;
+            audioEl = document.createElement("audio");
+            audioEl.srcObject = stream;
+            audioEl.autoplay = true;
+            audioEl.muted = true;
+            audioEl.playsInline = true;
+            document.body.appendChild(audioEl);
 
-            document.body.appendChild(audioElement);
-
-            setupAudioAnalysis(mediaStream);
-            showMuted(); // default state
+            setupAnalyser(stream);
+            showMuted();
           }
         );
 
+        // ❌ Audio removed
         stage.on(
           StageEvents.STAGE_PARTICIPANT_STREAMS_REMOVED,
           () => {
-            hasStream = false;
-            hideIcon();
-            if (audioElement) audioElement.srcObject = null;
+            hasAudioStream = false;
+            showMuted();
+            if (audioEl) audioEl.srcObject = null;
           }
         );
 
-        stage.on(
-          StageEvents.STAGE_PARTICIPANT_LEFT,
-          () => {
-            hasStream = false;
-            hideIcon();
-            if (audioElement) audioElement.srcObject = null;
-          }
-        );
+        // ❌ Participant gone
+        stage.on(StageEvents.STAGE_PARTICIPANT_LEFT, () => {
+          hasParticipant = false;
+          hasAudioStream = false;
+          hideIcon();
+          if (audioEl) audioEl.srcObject = null;
+        });
 
         await stage.join();
       }
 
-      function getTokenFromUrl() {
-        return new URLSearchParams(window.location.search).get("token");
-      }
-
-      const token = getTokenFromUrl();
+      const token = new URLSearchParams(window.location.search).get("token");
       if (token) joinStage(token);
     </script>
   </body>
