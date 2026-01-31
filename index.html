@@ -2,9 +2,8 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Amazon IVS Audio Stream</title>
+    <title>IVS Audio Indicator</title>
 
     <!-- Ionicons -->
     <script src="https://unpkg.com/ionicons@4.5.10-0/dist/ionicons.js"></script>
@@ -21,12 +20,8 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        font-family: Arial, sans-serif;
         height: 100%;
-      }
-
-      .container {
-        text-align: center;
+        font-family: Arial, sans-serif;
       }
 
       ion-icon {
@@ -39,21 +34,18 @@
         transition: background-color 0.2s ease;
       }
 
-      /* Source muted */
-      .icon-muted {
-        background-color: #e0e0e0;
-      }
-
-      /* Source live */
       .icon-live {
         background-color: #2ecc71;
       }
+
+      .icon-muted {
+        background-color: #e0e0e0;
+      }
     </style>
   </head>
+
   <body>
-    <div class="container">
-      <ion-icon id="audio-toggle" name="volume-mute"></ion-icon>
-    </div>
+    <ion-icon id="audio-toggle" name="volume-mute"></ion-icon>
 
     <script>
       const {
@@ -67,6 +59,7 @@
       let stage;
       let audioElement;
       let mediaStream = null;
+      let hasRemoteParticipant = false;
       let isClientMuted = true;
 
       const icon = document.getElementById("audio-toggle");
@@ -78,7 +71,7 @@
 
         audioElement = document.createElement("audio");
         audioElement.autoplay = true;
-        audioElement.muted = true; // client starts muted
+        audioElement.muted = true;
         audioElement.setAttribute("playsinline", "true");
         document.body.appendChild(audioElement);
 
@@ -93,24 +86,24 @@
 
       function hideIcon() {
         icon.style.display = "none";
-        icon.classList.remove("icon-muted", "icon-live");
+        icon.classList.remove("icon-live", "icon-muted");
       }
 
-      function setSourceMuted(isMuted) {
-        icon.classList.remove("icon-muted", "icon-live");
-
-        if (isMuted) {
-          icon.classList.add("icon-muted");
-          icon.setAttribute("name", "volume-mute");
-        } else {
-          icon.classList.add("icon-live");
-          icon.setAttribute("name", "volume-high");
-        }
+      function setLive() {
+        icon.classList.remove("icon-muted");
+        icon.classList.add("icon-live");
+        icon.setAttribute("name", "volume-high");
       }
 
-      /* ---------- Client Mute Toggle ---------- */
+      function setMuted() {
+        icon.classList.remove("icon-live");
+        icon.classList.add("icon-muted");
+        icon.setAttribute("name", "volume-mute");
+      }
 
-      function toggleClientAudio() {
+      /* ---------- Client Mute ---------- */
+
+      icon.addEventListener("click", () => {
         if (!audioElement || !mediaStream) return;
 
         isClientMuted = !isClientMuted;
@@ -119,9 +112,7 @@
         if (!isClientMuted) {
           audioElement.play().catch(() => {});
         }
-      }
-
-      icon.addEventListener("click", toggleClientAudio);
+      });
 
       /* ---------- Join Stage ---------- */
 
@@ -132,18 +123,19 @@
           shouldSubscribeToParticipant: () => SubscribeType.AUDIO,
         });
 
-        /* Connection state */
+        /* Connection cleanup */
         stage.on(
           StageEvents.STAGE_CONNECTION_STATE_CHANGED,
           (state) => {
             if (state === ConnectionState.DISCONNECTED) {
               hideIcon();
+              hasRemoteParticipant = false;
               if (audioElement) audioElement.srcObject = null;
             }
           }
         );
 
-        /* Audio added */
+        /* Audio stream added → MIC ON */
         stage.on(
           StageEvents.STAGE_PARTICIPANT_STREAMS_ADDED,
           (participant, streams) => {
@@ -155,6 +147,7 @@
 
             if (!audioStream || !audioStream.mediaStreamTrack) return;
 
+            hasRemoteParticipant = true;
             mediaStream = new MediaStream([
               audioStream.mediaStreamTrack,
             ]);
@@ -163,45 +156,42 @@
             audioEl.srcObject = mediaStream;
 
             showIcon();
-            setSourceMuted(!audioStream.mediaStreamTrack.enabled);
+            setLive();
 
             audioEl.play().catch(() => {});
           }
         );
 
-        /* Audio removed → source muted / gone */
+        /* Audio stream removed → MIC OFF */
         stage.on(
           StageEvents.STAGE_PARTICIPANT_STREAMS_REMOVED,
           (participant, streams) => {
+            if (participant.isLocal) return;
+
             const removedAudio = streams.find(
               (s) => s.streamType === StreamType.AUDIO
             );
 
-            if (!removedAudio) return;
+            if (!removedAudio || !hasRemoteParticipant) return;
 
             mediaStream = null;
-            setSourceMuted(true);
+            setMuted();
 
             if (audioElement) audioElement.srcObject = null;
           }
         );
 
-        /* Source mute/unmute while connected */
+        /* Participant left → STREAM STOPPED */
         stage.on(
-          StageEvents.STAGE_PARTICIPANT_UPDATED,
+          StageEvents.STAGE_PARTICIPANT_LEFT,
           (participant) => {
             if (participant.isLocal) return;
 
-            const audioStream = participant.streams?.find(
-              (s) => s.streamType === StreamType.AUDIO
-            );
+            hasRemoteParticipant = false;
+            mediaStream = null;
 
-            if (!audioStream || !audioStream.mediaStreamTrack) {
-              setSourceMuted(true);
-              return;
-            }
-
-            setSourceMuted(!audioStream.mediaStreamTrack.enabled);
+            hideIcon();
+            if (audioElement) audioElement.srcObject = null;
           }
         );
 
