@@ -34,169 +34,190 @@
         cursor: pointer;
         color: black;
         display: none;
+        padding: 12px;
+        border-radius: 50%;
+        transition: background-color 0.2s ease;
+      }
+
+      /* Source muted */
+      .icon-muted {
+        background-color: #e0e0e0;
+      }
+
+      /* Source live */
+      .icon-live {
+        background-color: #2ecc71;
       }
     </style>
   </head>
   <body>
     <div class="container">
-      <!-- Icon starts hidden -->
       <ion-icon id="audio-toggle" name="volume-mute"></ion-icon>
-      <!-- <div id="status">Connecting...</div> -->
     </div>
 
     <script>
-      const { Stage, SubscribeType, StageEvents, StreamType, ConnectionState } =
-        IVSBroadcastClient;
+      const {
+        Stage,
+        SubscribeType,
+        StageEvents,
+        StreamType,
+        ConnectionState,
+      } = IVSBroadcastClient;
 
       let stage;
       let audioElement;
-      let isMuted = true;
       let mediaStream = null;
+      let isClientMuted = true;
 
       const icon = document.getElementById("audio-toggle");
-      // const statusEl = document.getElementById("status");
 
-      // Create audio element once
+      /* ---------- Audio Element ---------- */
+
       function createAudioElement() {
         if (audioElement) return audioElement;
 
         audioElement = document.createElement("audio");
         audioElement.autoplay = true;
-        audioElement.muted = true; // Start muted
+        audioElement.muted = true; // client starts muted
         audioElement.setAttribute("playsinline", "true");
         document.body.appendChild(audioElement);
 
         return audioElement;
       }
 
-      // Join Stage Function
-      const joinStage = async (token) => {
+      /* ---------- UI Helpers ---------- */
+
+      function showIcon() {
+        icon.style.display = "block";
+      }
+
+      function hideIcon() {
+        icon.style.display = "none";
+        icon.classList.remove("icon-muted", "icon-live");
+      }
+
+      function setSourceMuted(isMuted) {
+        icon.classList.remove("icon-muted", "icon-live");
+
+        if (isMuted) {
+          icon.classList.add("icon-muted");
+          icon.setAttribute("name", "volume-mute");
+        } else {
+          icon.classList.add("icon-live");
+          icon.setAttribute("name", "volume-high");
+        }
+      }
+
+      /* ---------- Client Mute Toggle ---------- */
+
+      function toggleClientAudio() {
+        if (!audioElement || !mediaStream) return;
+
+        isClientMuted = !isClientMuted;
+        audioElement.muted = isClientMuted;
+
+        if (!isClientMuted) {
+          audioElement.play().catch(() => {});
+        }
+      }
+
+      icon.addEventListener("click", toggleClientAudio);
+
+      /* ---------- Join Stage ---------- */
+
+      async function joinStage(token) {
         stage = new Stage(token, {
           stageStreamsToPublish: () => [],
           shouldPublishParticipant: () => false,
           shouldSubscribeToParticipant: () => SubscribeType.AUDIO,
         });
 
-        // Handle connection state changes
-        stage.on(StageEvents.STAGE_CONNECTION_STATE_CHANGED, (state) => {
-          console.log("Connection state:", state);
-          if (state === ConnectionState.CONNECTED) {
-            // statusEl.textContent = "Connected - Click to unmute";
-          } else if (state === ConnectionState.DISCONNECTED) {
-            // statusEl.textContent = "Disconnected";
-            icon.style.display = "none";
-          }
-        });
-
-        // When audio is added
+        /* Connection state */
         stage.on(
-          StageEvents.STAGE_PARTICIPANT_STREAMS_ADDED,
-          (participant, streams) => {
-            if (!participant.isLocal) {
-              const audioStream = streams.find(
-                (s) => s.streamType === StreamType.AUDIO
-              );
-
-              if (audioStream && audioStream.mediaStreamTrack) {
-                mediaStream = new MediaStream([audioStream.mediaStreamTrack]);
-                const audioEl = createAudioElement();
-                audioEl.srcObject = mediaStream;
-
-                // Show muted icon
-                icon.style.display = "block";
-                // statusEl.textContent = "Connected - Click to unmute";
-
-                // Try to play the audio (may fail due to browser policies)
-                audioEl.play().catch((err) => {
-                  console.log("Autoplay prevented:", err);
-                  // statusEl.textContent = "Connected - Click to unmute and play";
-                });
-              }
+          StageEvents.STAGE_CONNECTION_STATE_CHANGED,
+          (state) => {
+            if (state === ConnectionState.DISCONNECTED) {
+              hideIcon();
+              if (audioElement) audioElement.srcObject = null;
             }
           }
         );
 
-        // When audio is removed
+        /* Audio added */
+        stage.on(
+          StageEvents.STAGE_PARTICIPANT_STREAMS_ADDED,
+          (participant, streams) => {
+            if (participant.isLocal) return;
+
+            const audioStream = streams.find(
+              (s) => s.streamType === StreamType.AUDIO
+            );
+
+            if (!audioStream || !audioStream.mediaStreamTrack) return;
+
+            mediaStream = new MediaStream([
+              audioStream.mediaStreamTrack,
+            ]);
+
+            const audioEl = createAudioElement();
+            audioEl.srcObject = mediaStream;
+
+            showIcon();
+            setSourceMuted(!audioStream.mediaStreamTrack.enabled);
+
+            audioEl.play().catch(() => {});
+          }
+        );
+
+        /* Audio removed → source muted / gone */
         stage.on(
           StageEvents.STAGE_PARTICIPANT_STREAMS_REMOVED,
           (participant, streams) => {
             const removedAudio = streams.find(
               (s) => s.streamType === StreamType.AUDIO
             );
-            if (removedAudio) {
-              // statusEl.textContent = "No active audio stream";
-              icon.style.display = "none";
-              if (audioElement) {
-                audioElement.srcObject = null;
-              }
-            }
+
+            if (!removedAudio) return;
+
+            mediaStream = null;
+            setSourceMuted(true);
+
+            if (audioElement) audioElement.srcObject = null;
           }
         );
 
-        // Also handle participant leaving
-        // stage.on(StageEvents.STAGE_PARTICIPANT_LEFT, (participant) => {
-        //   if (!participant.isLocal) {
-        //     statusEl.textContent = "Participant left";
-        //     icon.style.display = "none";
-        //     if (audioElement) {
-        //       audioElement.srcObject = null;
-        //     }
-        //   }
-        // });
+        /* Source mute/unmute while connected */
+        stage.on(
+          StageEvents.STAGE_PARTICIPANT_UPDATED,
+          (participant) => {
+            if (participant.isLocal) return;
 
-        try {
-          await stage.join();
-          console.log("Successfully joined stage");
-        } catch (err) {
-          console.error("Error joining stage:", err);
-          // statusEl.textContent = "Error connecting: " + err.message;
-        }
-      };
+            const audioStream = participant.streams?.find(
+              (s) => s.streamType === StreamType.AUDIO
+            );
 
-      // Token from query string
-      const getTokenFromUrl = () => {
-        const urlParams = new URLSearchParams(window.location.search);
-        return urlParams.get("token");
-      };
+            if (!audioStream || !audioStream.mediaStreamTrack) {
+              setSourceMuted(true);
+              return;
+            }
 
-      // Toggle audio function
-      function toggleAudio() {
-        if (!audioElement || !mediaStream) {
-          // statusEl.textContent = "No audio available";
-          return;
-        }
+            setSourceMuted(!audioStream.mediaStreamTrack.enabled);
+          }
+        );
 
-        isMuted = !isMuted;
-        audioElement.muted = isMuted;
+        await stage.join();
+      }
 
-        if (isMuted) {
-          icon.setAttribute("name", "volume-mute");
-          icon.classList.remove("volume-high");
-          icon.classList.add("volume-mute");
-          // statusEl.textContent = "Muted";
-        } else {
-          icon.setAttribute("name", "volume-high");
-          icon.classList.remove("volume-mute");
-          icon.classList.add("volume-high");
-          // statusEl.textContent = "Playing";
+      /* ---------- Token ---------- */
 
-          // Try to play if not already playing
-          audioElement.play().catch((err) => {
-            console.log("Play failed:", err);
-            // statusEl.textContent = "Click again to play";
-          });
-        }
+      function getTokenFromUrl() {
+        const params = new URLSearchParams(window.location.search);
+        return params.get("token");
       }
 
       window.addEventListener("DOMContentLoaded", () => {
         const token = getTokenFromUrl();
-        if (token) {
-          joinStage(token);
-        } else {
-          // statusEl.textContent = "Missing token parameter";
-        }
-
-        icon.addEventListener("click", toggleAudio);
+        if (token) joinStage(token);
       });
     </script>
   </body>
