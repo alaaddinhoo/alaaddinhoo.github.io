@@ -127,6 +127,47 @@
         }
       }
 
+      // Check existing participants for audio streams when joining
+      function checkExistingParticipants(participants) {
+        if (!participants || participants.length === 0) {
+          updateIconState('no-stream');
+          return;
+        }
+
+        // Find first non-local participant with audio
+        for (const participant of participants) {
+          if (!participant.isLocal) {
+            const streams = participant.getStreams();
+            const audioStream = streams.find(
+              (s) => s.streamType === StreamType.AUDIO
+            );
+
+            if (audioStream && audioStream.mediaStreamTrack) {
+              mediaStream = new MediaStream([audioStream.mediaStreamTrack]);
+              const audioEl = createAudioElement();
+              audioEl.srcObject = mediaStream;
+
+              // Initialize audio analysis
+              initAudioAnalysis(mediaStream);
+              
+              // Set initial state (assume mic is on initially)
+              updateIconState('streaming-mic-on');
+              lastAudioTime = Date.now();
+
+              // Try to play the audio
+              audioEl.play().catch((err) => {
+                console.log("Autoplay prevented:", err);
+              });
+              
+              return; // Found an audio stream
+            }
+          }
+        }
+        
+        // No audio streams found
+        updateIconState('no-stream');
+      }
+
       // Clean up audio analysis
       function cleanupAudioAnalysis() {
         if (audioDetectionInterval) {
@@ -243,14 +284,40 @@
         stage.on(StageEvents.STAGE_CONNECTION_STATE_CHANGED, (state) => {
           console.log("Connection state:", state);
           if (state === ConnectionState.CONNECTED) {
-            // Connected but no stream yet
-            updateIconState('no-stream');
+            // Check for existing participants with audio when connected
+            const participants = stage.getParticipants();
+            checkExistingParticipants(participants);
           } else if (state === ConnectionState.DISCONNECTED) {
             updateIconState('streaming-stopped');
           }
         });
 
-        // When audio is added
+        // When new participants join
+        stage.on(StageEvents.STAGE_PARTICIPANT_JOINED, (participant) => {
+          if (!participant.isLocal) {
+            // Check if this new participant has audio
+            const streams = participant.getStreams();
+            const audioStream = streams.find(
+              (s) => s.streamType === StreamType.AUDIO
+            );
+            
+            if (audioStream && audioStream.mediaStreamTrack) {
+              mediaStream = new MediaStream([audioStream.mediaStreamTrack]);
+              const audioEl = createAudioElement();
+              audioEl.srcObject = mediaStream;
+
+              initAudioAnalysis(mediaStream);
+              updateIconState('streaming-mic-on');
+              lastAudioTime = Date.now();
+
+              audioEl.play().catch((err) => {
+                console.log("Autoplay prevented:", err);
+              });
+            }
+          }
+        });
+
+        // When audio is added to existing participant
         stage.on(
           StageEvents.STAGE_PARTICIPANT_STREAMS_ADDED,
           (participant, streams) => {
@@ -296,7 +363,7 @@
           }
         );
 
-        // Also handle participant leaving
+        // Handle participant leaving
         stage.on(StageEvents.STAGE_PARTICIPANT_LEFT, (participant) => {
           if (!participant.isLocal) {
             updateIconState('streaming-stopped');
