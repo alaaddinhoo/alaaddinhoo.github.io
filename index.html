@@ -21,22 +21,21 @@
       }
 
       ion-icon {
-        font-size: 32px;
-        padding: 12px;
-        border-radius: 50%;
-        display: none;
-        color: black;
-      }
+  font-size: 32px;
+  padding: 12px;
+  border-radius: 50%;
+  display: none;
+  color: black;
+}
 
-      .live {
-        border: 1px;
-        border-color: #2ecc71;
-      }
+.live {
+  background-color: #2ecc71;
+}
 
-      .muted {
-        border: 1px;
-        border-color: #e0e0e0;
-      }
+.muted {
+  background-color: #e0e0e0;
+}
+
     </style>
   </head>
 
@@ -83,6 +82,8 @@
       function setupAudioAnalysis(stream) {
         audioContext = new (window.AudioContext ||
           window.webkitAudioContext)();
+
+         audioContext.resume(); // ✅ REQUIRED
 
         analyser = audioContext.createAnalyser();
         analyser.fftSize = 512;
