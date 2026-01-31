@@ -3,12 +3,9 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>IVS Audio Indicator</title>
+    <title>IVS Auction Audio</title>
 
-    <!-- Ionicons -->
     <script src="https://unpkg.com/ionicons@4.5.10-0/dist/ionicons.js"></script>
-
-    <!-- Amazon IVS Web Broadcast SDK -->
     <script src="https://web-broadcast.live-video.net/1.19.0/amazon-ivs-web-broadcast.js"></script>
 
     <style>
@@ -21,31 +18,30 @@
         align-items: center;
         justify-content: center;
         height: 100%;
-        font-family: Arial, sans-serif;
       }
 
       ion-icon {
         font-size: 32px;
-        cursor: pointer;
-        color: black;
-        display: none;
         padding: 12px;
         border-radius: 50%;
-        transition: background-color 0.2s ease;
+        display: none;
+        color: black;
       }
 
-      .icon-live {
-        background-color: #2ecc71;
+      .live {
+        border: 1px;
+        border-color: #2ecc71;
       }
 
-      .icon-muted {
-        background-color: #e0e0e0;
+      .muted {
+        border: 1px;
+        border-color: #e0e0e0;
       }
     </style>
   </head>
 
   <body>
-    <ion-icon id="audio-toggle" name="volume-mute"></ion-icon>
+    <ion-icon id="audio-icon" name="volume-mute"></ion-icon>
 
     <script>
       const {
@@ -53,162 +49,134 @@
         SubscribeType,
         StageEvents,
         StreamType,
-        ConnectionState,
       } = IVSBroadcastClient;
 
-      let stage;
-      let audioElement;
-      let mediaStream = null;
-      let hasRemoteParticipant = false;
-      let isClientMuted = true;
+      const icon = document.getElementById("audio-icon");
 
-      const icon = document.getElementById("audio-toggle");
+      let audioEl;
+      let audioContext;
+      let analyser;
+      let dataArray;
+      let hasStream = false;
+      let silenceTimer = null;
 
-      /* ---------- Audio Element ---------- */
-
-      function createAudioElement() {
-        if (audioElement) return audioElement;
-
-        audioElement = document.createElement("audio");
-        audioElement.autoplay = true;
-        audioElement.muted = true;
-        audioElement.setAttribute("playsinline", "true");
-        document.body.appendChild(audioElement);
-
-        return audioElement;
-      }
-
-      /* ---------- UI Helpers ---------- */
-
-      function showIcon() {
-        icon.style.display = "block";
-      }
-
-      function hideIcon() {
-        icon.style.display = "none";
-        icon.classList.remove("icon-live", "icon-muted");
-      }
+      const SILENCE_THRESHOLD = 25; // tweak if needed
+      const SILENCE_DELAY = 1000; // ms before gray
 
       function setLive() {
-        icon.classList.remove("icon-muted");
-        icon.classList.add("icon-live");
+        icon.style.display = "block";
+        icon.className = "live";
         icon.setAttribute("name", "volume-high");
       }
 
       function setMuted() {
-        icon.classList.remove("icon-live");
-        icon.classList.add("icon-muted");
+        icon.style.display = "block";
+        icon.className = "muted";
         icon.setAttribute("name", "volume-mute");
       }
 
-      /* ---------- Client Mute ---------- */
+      function hideIcon() {
+        icon.style.display = "none";
+        icon.className = "";
+      }
 
-      icon.addEventListener("click", () => {
-        if (!audioElement || !mediaStream) return;
+      function setupAudioAnalysis(stream) {
+        audioContext = new (window.AudioContext ||
+          window.webkitAudioContext)();
 
-        isClientMuted = !isClientMuted;
-        audioElement.muted = isClientMuted;
+        analyser = audioContext.createAnalyser();
+        analyser.fftSize = 512;
 
-        if (!isClientMuted) {
-          audioElement.play().catch(() => {});
+        const source = audioContext.createMediaStreamSource(stream);
+        source.connect(analyser);
+
+        dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+        monitorVolume();
+      }
+
+      function monitorVolume() {
+        if (!hasStream) return;
+
+        analyser.getByteFrequencyData(dataArray);
+        const avg =
+          dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
+
+        if (avg > SILENCE_THRESHOLD) {
+          clearTimeout(silenceTimer);
+          setLive();
+        } else {
+          if (!silenceTimer) {
+            silenceTimer = setTimeout(() => {
+              setMuted();
+              silenceTimer = null;
+            }, SILENCE_DELAY);
+          }
         }
-      });
 
-      /* ---------- Join Stage ---------- */
+        requestAnimationFrame(monitorVolume);
+      }
 
       async function joinStage(token) {
-        stage = new Stage(token, {
+        const stage = new Stage(token, {
           stageStreamsToPublish: () => [],
           shouldPublishParticipant: () => false,
           shouldSubscribeToParticipant: () => SubscribeType.AUDIO,
         });
 
-        /* Connection cleanup */
-        stage.on(
-          StageEvents.STAGE_CONNECTION_STATE_CHANGED,
-          (state) => {
-            if (state === ConnectionState.DISCONNECTED) {
-              hideIcon();
-              hasRemoteParticipant = false;
-              if (audioElement) audioElement.srcObject = null;
-            }
-          }
-        );
-
-        /* Audio stream added → MIC ON */
         stage.on(
           StageEvents.STAGE_PARTICIPANT_STREAMS_ADDED,
           (participant, streams) => {
-            if (participant.isLocal) return;
-
             const audioStream = streams.find(
               (s) => s.streamType === StreamType.AUDIO
             );
 
-            if (!audioStream || !audioStream.mediaStreamTrack) return;
+            if (!audioStream) return;
 
-            hasRemoteParticipant = true;
-            mediaStream = new MediaStream([
+            hasStream = true;
+
+            const stream = new MediaStream([
               audioStream.mediaStreamTrack,
             ]);
 
-            const audioEl = createAudioElement();
-            audioEl.srcObject = mediaStream;
+            audioEl = document.createElement("audio");
+            audioEl.autoplay = true;
+            audioEl.muted = false;
+            audioEl.srcObject = stream;
+            document.body.appendChild(audioEl);
 
-            showIcon();
-            setLive();
-
-            audioEl.play().catch(() => {});
+            setupAudioAnalysis(stream);
+            setMuted(); // assume muted until sound
           }
         );
 
-        /* Audio stream removed → MIC OFF */
         stage.on(
           StageEvents.STAGE_PARTICIPANT_STREAMS_REMOVED,
-          (participant, streams) => {
-            if (participant.isLocal) return;
-
-            const removedAudio = streams.find(
-              (s) => s.streamType === StreamType.AUDIO
-            );
-
-            if (!removedAudio || !hasRemoteParticipant) return;
-
-            mediaStream = null;
-            setMuted();
-
-            if (audioElement) audioElement.srcObject = null;
+          () => {
+            hasStream = false;
+            hideIcon();
+            if (audioEl) audioEl.srcObject = null;
           }
         );
 
-        /* Participant left → STREAM STOPPED */
         stage.on(
           StageEvents.STAGE_PARTICIPANT_LEFT,
-          (participant) => {
-            if (participant.isLocal) return;
-
-            hasRemoteParticipant = false;
-            mediaStream = null;
-
+          () => {
+            hasStream = false;
             hideIcon();
-            if (audioElement) audioElement.srcObject = null;
+            if (audioEl) audioEl.srcObject = null;
           }
         );
 
         await stage.join();
       }
 
-      /* ---------- Token ---------- */
-
       function getTokenFromUrl() {
-        const params = new URLSearchParams(window.location.search);
-        return params.get("token");
+        return new URLSearchParams(window.location.search).get("token");
       }
 
-      window.addEventListener("DOMContentLoaded", () => {
-        const token = getTokenFromUrl();
-        if (token) joinStage(token);
-      });
+      const token = getTokenFromUrl();
+      if (token) joinStage(token);
     </script>
   </body>
 </html>
