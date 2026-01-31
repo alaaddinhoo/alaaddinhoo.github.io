@@ -34,30 +34,6 @@
         cursor: pointer;
         color: black;
         display: none;
-        border-radius: 50%;
-        padding: 2px;
-        transition: border-color 0.3s ease;
-      }
-
-      /* Icon states */
-      .no-stream {
-        display: none !important;
-      }
-
-      .streaming-mic-on {
-        display: block !important;
-        border: 2px solid #4caf50; /* Green border */
-        background-color: rgba(76, 175, 80, 0.1);
-      }
-
-      .streaming-mic-off {
-        display: block !important;
-        border: 2px solid #9e9e9e; /* Gray border */
-        background-color: rgba(158, 158, 158, 0.1);
-      }
-
-      .streaming-stopped {
-        display: none !important;
       }
     </style>
   </head>
@@ -65,6 +41,7 @@
     <div class="container">
       <!-- Icon starts hidden -->
       <ion-icon id="audio-toggle" name="volume-mute"></ion-icon>
+      <!-- <div id="status">Connecting...</div> -->
     </div>
 
     <script>
@@ -75,17 +52,9 @@
       let audioElement;
       let isMuted = true;
       let mediaStream = null;
-      let audioContext = null;
-      let audioAnalyser = null;
-      let audioSource = null;
-      let isStreaming = false;
-      let lastAudioTime = 0;
-      let audioDetectionInterval = null;
-      let silentDuration = 0;
-      const AUDIO_THRESHOLD = 0.01; // Minimum audio level to consider as "sound"
-      const SILENT_TIMEOUT = 25000; // 25 seconds of silence = mic off
 
       const icon = document.getElementById("audio-toggle");
+      // const statusEl = document.getElementById("status");
 
       // Create audio element once
       function createAudioElement() {
@@ -100,178 +69,6 @@
         return audioElement;
       }
 
-      // Initialize audio analysis
-      function initAudioAnalysis(stream) {
-        if (audioContext) {
-          cleanupAudioAnalysis();
-        }
-
-        try {
-          audioContext = new (window.AudioContext || window.webkitAudioContext)();
-          audioSource = audioContext.createMediaStreamSource(stream);
-          audioAnalyser = audioContext.createAnalyser();
-          
-          // Configure analyser
-          audioAnalyser.fftSize = 256;
-          audioAnalyser.smoothingTimeConstant = 0.8;
-          
-          // Connect nodes
-          audioSource.connect(audioAnalyser);
-          
-          // Start detection
-          startAudioDetection();
-          
-          console.log("Audio analysis initialized");
-        } catch (error) {
-          console.error("Error initializing audio analysis:", error);
-        }
-      }
-
-      // Check existing participants for audio streams when joining
-      function checkExistingParticipants(participants) {
-        if (!participants || participants.length === 0) {
-          updateIconState('no-stream');
-          return;
-        }
-
-        // Find first non-local participant with audio
-        for (const participant of participants) {
-          if (!participant.isLocal) {
-            const streams = participant.getStreams();
-            const audioStream = streams.find(
-              (s) => s.streamType === StreamType.AUDIO
-            );
-
-            if (audioStream && audioStream.mediaStreamTrack) {
-              mediaStream = new MediaStream([audioStream.mediaStreamTrack]);
-              const audioEl = createAudioElement();
-              audioEl.srcObject = mediaStream;
-
-              // Initialize audio analysis
-              initAudioAnalysis(mediaStream);
-              
-              // Set initial state (assume mic is on initially)
-              updateIconState('streaming-mic-on');
-              lastAudioTime = Date.now();
-
-              // Try to play the audio
-              audioEl.play().catch((err) => {
-                console.log("Autoplay prevented:", err);
-              });
-              
-              return; // Found an audio stream
-            }
-          }
-        }
-        
-        // No audio streams found
-        updateIconState('no-stream');
-      }
-
-      // Clean up audio analysis
-      function cleanupAudioAnalysis() {
-        if (audioDetectionInterval) {
-          clearInterval(audioDetectionInterval);
-          audioDetectionInterval = null;
-        }
-        
-        if (audioSource) {
-          audioSource.disconnect();
-          audioSource = null;
-        }
-        
-        if (audioAnalyser) {
-          audioAnalyser.disconnect();
-          audioAnalyser = null;
-        }
-        
-        if (audioContext && audioContext.state !== 'closed') {
-          audioContext.close();
-          audioContext = null;
-        }
-        
-        silentDuration = 0;
-        lastAudioTime = 0;
-      }
-
-      // Detect audio levels
-      function startAudioDetection() {
-        if (!audioAnalyser) return;
-
-        // Clear any existing interval
-        if (audioDetectionInterval) {
-          clearInterval(audioDetectionInterval);
-        }
-
-        const bufferLength = audioAnalyser.frequencyBinCount;
-        const dataArray = new Uint8Array(bufferLength);
-
-        audioDetectionInterval = setInterval(() => {
-          if (!audioAnalyser || !isStreaming) return;
-
-          audioAnalyser.getByteFrequencyData(dataArray);
-          
-          // Calculate average volume
-          let sum = 0;
-          for (let i = 0; i < bufferLength; i++) {
-            sum += dataArray[i];
-          }
-          const average = sum / bufferLength;
-          const normalizedVolume = average / 255; // Normalize to 0-1
-          
-          // Check if audio is present
-          if (normalizedVolume > AUDIO_THRESHOLD) {
-            lastAudioTime = Date.now();
-            silentDuration = 0;
-            
-            // Audio detected - mic is ON
-            if (!icon.classList.contains('streaming-mic-on')) {
-              icon.className = 'streaming-mic-on';
-              icon.setAttribute('name', 'volume-high');
-            }
-          } else {
-            // No audio detected
-            const currentTime = Date.now();
-            silentDuration = currentTime - lastAudioTime;
-            
-            // If silent for more than 25 seconds, consider mic OFF
-            if (silentDuration > SILENT_TIMEOUT) {
-              if (!icon.classList.contains('streaming-mic-off')) {
-                icon.className = 'streaming-mic-off';
-                icon.setAttribute('name', 'volume-mute');
-              }
-            }
-          }
-        }, 1000); // Check every second
-      }
-
-      // Update icon state
-      function updateIconState(state) {
-        icon.className = '';
-        isStreaming = false;
-        
-        switch(state) {
-          case 'no-stream':
-            icon.classList.add('no-stream');
-            cleanupAudioAnalysis();
-            break;
-          case 'streaming-mic-on':
-            icon.classList.add('streaming-mic-on');
-            icon.setAttribute('name', 'volume-high');
-            isStreaming = true;
-            break;
-          case 'streaming-mic-off':
-            icon.classList.add('streaming-mic-off');
-            icon.setAttribute('name', 'volume-mute');
-            isStreaming = true;
-            break;
-          case 'streaming-stopped':
-            icon.classList.add('streaming-stopped');
-            cleanupAudioAnalysis();
-            break;
-        }
-      }
-
       // Join Stage Function
       const joinStage = async (token) => {
         stage = new Stage(token, {
@@ -284,40 +81,14 @@
         stage.on(StageEvents.STAGE_CONNECTION_STATE_CHANGED, (state) => {
           console.log("Connection state:", state);
           if (state === ConnectionState.CONNECTED) {
-            // Check for existing participants with audio when connected
-            const participants = stage.getParticipants();
-            checkExistingParticipants(participants);
+            // statusEl.textContent = "Connected - Click to unmute";
           } else if (state === ConnectionState.DISCONNECTED) {
-            updateIconState('streaming-stopped');
+            // statusEl.textContent = "Disconnected";
+            icon.style.display = "none";
           }
         });
 
-        // When new participants join
-        stage.on(StageEvents.STAGE_PARTICIPANT_JOINED, (participant) => {
-          if (!participant.isLocal) {
-            // Check if this new participant has audio
-            const streams = participant.getStreams();
-            const audioStream = streams.find(
-              (s) => s.streamType === StreamType.AUDIO
-            );
-            
-            if (audioStream && audioStream.mediaStreamTrack) {
-              mediaStream = new MediaStream([audioStream.mediaStreamTrack]);
-              const audioEl = createAudioElement();
-              audioEl.srcObject = mediaStream;
-
-              initAudioAnalysis(mediaStream);
-              updateIconState('streaming-mic-on');
-              lastAudioTime = Date.now();
-
-              audioEl.play().catch((err) => {
-                console.log("Autoplay prevented:", err);
-              });
-            }
-          }
-        });
-
-        // When audio is added to existing participant
+        // When audio is added
         stage.on(
           StageEvents.STAGE_PARTICIPANT_STREAMS_ADDED,
           (participant, streams) => {
@@ -331,16 +102,14 @@
                 const audioEl = createAudioElement();
                 audioEl.srcObject = mediaStream;
 
-                // Initialize audio analysis
-                initAudioAnalysis(mediaStream);
-                
-                // Set initial state (assume mic is on initially)
-                updateIconState('streaming-mic-on');
-                lastAudioTime = Date.now();
+                // Show muted icon
+                icon.style.display = "block";
+                // statusEl.textContent = "Connected - Click to unmute";
 
                 // Try to play the audio (may fail due to browser policies)
                 audioEl.play().catch((err) => {
                   console.log("Autoplay prevented:", err);
+                  // statusEl.textContent = "Connected - Click to unmute and play";
                 });
               }
             }
@@ -355,7 +124,8 @@
               (s) => s.streamType === StreamType.AUDIO
             );
             if (removedAudio) {
-              updateIconState('streaming-stopped');
+              // statusEl.textContent = "No active audio stream";
+              icon.style.display = "none";
               if (audioElement) {
                 audioElement.srcObject = null;
               }
@@ -363,22 +133,23 @@
           }
         );
 
-        // Handle participant leaving
-        stage.on(StageEvents.STAGE_PARTICIPANT_LEFT, (participant) => {
-          if (!participant.isLocal) {
-            updateIconState('streaming-stopped');
-            if (audioElement) {
-              audioElement.srcObject = null;
-            }
-          }
-        });
+        // Also handle participant leaving
+        // stage.on(StageEvents.STAGE_PARTICIPANT_LEFT, (participant) => {
+        //   if (!participant.isLocal) {
+        //     statusEl.textContent = "Participant left";
+        //     icon.style.display = "none";
+        //     if (audioElement) {
+        //       audioElement.srcObject = null;
+        //     }
+        //   }
+        // });
 
         try {
           await stage.join();
           console.log("Successfully joined stage");
         } catch (err) {
           console.error("Error joining stage:", err);
-          updateIconState('no-stream');
+          // statusEl.textContent = "Error connecting: " + err.message;
         }
       };
 
@@ -388,9 +159,10 @@
         return urlParams.get("token");
       };
 
-      // Toggle audio function (user mute/unmute)
+      // Toggle audio function
       function toggleAudio() {
         if (!audioElement || !mediaStream) {
+          // statusEl.textContent = "No audio available";
           return;
         }
 
@@ -399,12 +171,19 @@
 
         if (isMuted) {
           icon.setAttribute("name", "volume-mute");
+          icon.classList.remove("volume-high");
+          icon.classList.add("volume-mute");
+          // statusEl.textContent = "Muted";
         } else {
           icon.setAttribute("name", "volume-high");
-          
+          icon.classList.remove("volume-mute");
+          icon.classList.add("volume-high");
+          // statusEl.textContent = "Playing";
+
           // Try to play if not already playing
           audioElement.play().catch((err) => {
             console.log("Play failed:", err);
+            // statusEl.textContent = "Click again to play";
           });
         }
       }
@@ -414,18 +193,10 @@
         if (token) {
           joinStage(token);
         } else {
-          updateIconState('no-stream');
+          // statusEl.textContent = "Missing token parameter";
         }
 
         icon.addEventListener("click", toggleAudio);
-      });
-
-      // Cleanup on page unload
-      window.addEventListener('beforeunload', () => {
-        cleanupAudioAnalysis();
-        if (stage) {
-          stage.leave();
-        }
       });
     </script>
   </body>
