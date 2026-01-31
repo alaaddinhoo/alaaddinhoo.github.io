@@ -21,21 +21,21 @@
       }
 
       ion-icon {
-  font-size: 32px;
-  padding: 12px;
-  border-radius: 50%;
-  display: none;
-  color: black;
-}
+        font-size: 32px;
+        padding: 12px;
+        border-radius: 50%;
+        display: none;
+        color: black;
+        transition: background-color 0.2s ease;
+      }
 
-.live {
-  background-color: #2ecc71;
-}
+      .live {
+        border: 1px solid #2ecc71;
+      }
 
-.muted {
-  background-color: #e0e0e0;
-}
-
+      .muted {
+        border: 1px solid #e0e0e0;
+      }
     </style>
   </head>
 
@@ -48,42 +48,65 @@
         SubscribeType,
         StageEvents,
         StreamType,
+        ConnectionState,
       } = IVSBroadcastClient;
 
       const icon = document.getElementById("audio-icon");
 
-      let audioEl;
+      let stage;
+      let audioElement;
       let audioContext;
       let analyser;
       let dataArray;
-      let hasStream = false;
+      let mediaStream = null;
+      let hasAudioStream = false;
       let silenceTimer = null;
 
-      const SILENCE_THRESHOLD = 25; // tweak if needed
-      const SILENCE_DELAY = 1000; // ms before gray
+      const SILENCE_THRESHOLD = 25;
+      const SILENCE_DELAY = 1000;
 
-      function setLive() {
-        icon.style.display = "block";
-        icon.className = "live";
-        icon.setAttribute("name", "volume-high");
+      /* ---------- UI helpers ---------- */
+
+      function showMuted() {
+        icon.style.display = "block";     // ✅ ALWAYS SHOW
+        icon.classList.remove("live");
+        icon.classList.add("muted");
+        icon.setAttribute("name", "volume-mute");
       }
 
-      function setMuted() {
-        icon.style.display = "block";
-        icon.className = "muted";
-        icon.setAttribute("name", "volume-mute");
+      function showLive() {
+        icon.style.display = "block";     // ✅ ALWAYS SHOW
+        icon.classList.remove("muted");
+        icon.classList.add("live");
+        icon.setAttribute("name", "volume-high");
       }
 
       function hideIcon() {
         icon.style.display = "none";
-        icon.className = "";
+        icon.classList.remove("live", "muted");
       }
+
+      /* ---------- Audio element ---------- */
+
+      function createAudioElement() {
+        if (audioElement) return audioElement;
+
+        audioElement = document.createElement("audio");
+        audioElement.autoplay = true;
+        audioElement.muted = false;
+        audioElement.playsInline = true;
+        document.body.appendChild(audioElement);
+
+        return audioElement;
+      }
+
+      /* ---------- Audio analysis ---------- */
 
       function setupAudioAnalysis(stream) {
         audioContext = new (window.AudioContext ||
           window.webkitAudioContext)();
 
-         audioContext.resume(); // ✅ REQUIRED
+        audioContext.resume(); // ✅ REQUIRED on mobile
 
         analyser = audioContext.createAnalyser();
         analyser.fftSize = 512;
@@ -92,12 +115,11 @@
         source.connect(analyser);
 
         dataArray = new Uint8Array(analyser.frequencyBinCount);
-
         monitorVolume();
       }
 
       function monitorVolume() {
-        if (!hasStream) return;
+        if (!hasAudioStream) return;
 
         analyser.getByteFrequencyData(dataArray);
         const avg =
@@ -105,72 +127,86 @@
 
         if (avg > SILENCE_THRESHOLD) {
           clearTimeout(silenceTimer);
-          setLive();
-        } else {
-          if (!silenceTimer) {
-            silenceTimer = setTimeout(() => {
-              setMuted();
-              silenceTimer = null;
-            }, SILENCE_DELAY);
-          }
+          showLive();
+        } else if (!silenceTimer) {
+          silenceTimer = setTimeout(() => {
+            showMuted();
+            silenceTimer = null;
+          }, SILENCE_DELAY);
         }
 
         requestAnimationFrame(monitorVolume);
       }
 
+      /* ---------- Join Stage ---------- */
+
       async function joinStage(token) {
-        const stage = new Stage(token, {
+        stage = new Stage(token, {
           stageStreamsToPublish: () => [],
           shouldPublishParticipant: () => false,
           shouldSubscribeToParticipant: () => SubscribeType.AUDIO,
         });
 
         stage.on(
+          StageEvents.STAGE_CONNECTION_STATE_CHANGED,
+          (state) => {
+            if (state === ConnectionState.DISCONNECTED) {
+              hideIcon();
+              hasAudioStream = false;
+            }
+          }
+        );
+
+        // ✅ STREAM EXISTS → SHOW ICON IMMEDIATELY
+        stage.on(
           StageEvents.STAGE_PARTICIPANT_STREAMS_ADDED,
           (participant, streams) => {
+            if (participant.isLocal) return;
+
             const audioStream = streams.find(
               (s) => s.streamType === StreamType.AUDIO
             );
 
-            if (!audioStream) return;
+            if (!audioStream || !audioStream.mediaStreamTrack) return;
 
-            hasStream = true;
+            hasAudioStream = true;
 
-            const stream = new MediaStream([
+            mediaStream = new MediaStream([
               audioStream.mediaStreamTrack,
             ]);
 
-            audioEl = document.createElement("audio");
-            audioEl.autoplay = true;
-            audioEl.muted = false;
-            audioEl.srcObject = stream;
-            document.body.appendChild(audioEl);
+            const audioEl = createAudioElement();
+            audioEl.srcObject = mediaStream;
 
-            setupAudioAnalysis(stream);
-            setMuted(); // assume muted until sound
+            showMuted(); // ✅ default state until sound detected
+            setupAudioAnalysis(mediaStream);
+
+            audioEl.play().catch(() => {});
           }
         );
 
         stage.on(
           StageEvents.STAGE_PARTICIPANT_STREAMS_REMOVED,
           () => {
-            hasStream = false;
+            hasAudioStream = false;
             hideIcon();
-            if (audioEl) audioEl.srcObject = null;
+            if (audioElement) audioElement.srcObject = null;
           }
         );
 
         stage.on(
           StageEvents.STAGE_PARTICIPANT_LEFT,
           () => {
-            hasStream = false;
+            hasAudioStream = false;
             hideIcon();
-            if (audioEl) audioEl.srcObject = null;
+            if (audioElement) audioElement.srcObject = null;
           }
         );
 
         await stage.join();
       }
+
+      /* ---------- Token ---------- */
 
       function getTokenFromUrl() {
         return new URLSearchParams(window.location.search).get("token");
