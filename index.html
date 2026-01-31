@@ -34,25 +34,6 @@
         cursor: pointer;
         color: black;
         display: none;
-        border-radius: 50%;
-        padding: 2px;
-        transition: border-color 0.3s ease;
-        border: 2px solid transparent;
-      }
-
-      /* Icon states */
-      .icon-visible {
-        display: block !important;
-      }
-
-      .mic-on {
-        border-color: #4caf50 !important; /* Green border for mic ON */
-        background-color: rgba(76, 175, 80, 0.1);
-      }
-
-      .mic-off {
-        border-color: #9e9e9e !important; /* Gray border for mic OFF */
-        background-color: rgba(158, 158, 158, 0.1);
       }
     </style>
   </head>
@@ -60,6 +41,7 @@
     <div class="container">
       <!-- Icon starts hidden -->
       <ion-icon id="audio-toggle" name="volume-mute"></ion-icon>
+      <!-- <div id="status">Connecting...</div> -->
     </div>
 
     <script>
@@ -70,19 +52,9 @@
       let audioElement;
       let isMuted = true;
       let mediaStream = null;
-      
-      // Audio detection variables
-      let audioContext = null;
-      let audioAnalyser = null;
-      let audioSource = null;
-      let audioDetectionInterval = null;
-      let lastAudioTime = Date.now();
-      let silentDuration = 0;
-      let broadcasterMicOn = false; // Track broadcaster's mic state
-      const AUDIO_THRESHOLD = 0.01;
-      const SILENT_TIMEOUT = 25000;
 
       const icon = document.getElementById("audio-toggle");
+      // const statusEl = document.getElementById("status");
 
       // Create audio element once
       function createAudioElement() {
@@ -97,122 +69,6 @@
         return audioElement;
       }
 
-      // Initialize audio analysis
-      function initAudioAnalysis(stream) {
-        cleanupAudioAnalysis();
-        
-        try {
-          audioContext = new (window.AudioContext || window.webkitAudioContext)();
-          audioSource = audioContext.createMediaStreamSource(stream);
-          audioAnalyser = audioContext.createAnalyser();
-          
-          audioAnalyser.fftSize = 256;
-          audioAnalyser.smoothingTimeConstant = 0.3;
-          
-          audioSource.connect(audioAnalyser);
-          startAudioDetection();
-          
-          console.log("Audio analysis started");
-        } catch (error) {
-          console.error("Error initializing audio analysis:", error);
-        }
-      }
-
-      // Clean up audio analysis
-      function cleanupAudioAnalysis() {
-        if (audioDetectionInterval) {
-          clearInterval(audioDetectionInterval);
-          audioDetectionInterval = null;
-        }
-        
-        if (audioSource) {
-          try { audioSource.disconnect(); } catch(e) {}
-          audioSource = null;
-        }
-        
-        if (audioAnalyser) {
-          try { audioAnalyser.disconnect(); } catch(e) {}
-          audioAnalyser = null;
-        }
-        
-        if (audioContext && audioContext.state !== 'closed') {
-          try { audioContext.close(); } catch(e) {}
-          audioContext = null;
-        }
-        
-        silentDuration = 0;
-        lastAudioTime = Date.now();
-        broadcasterMicOn = false;
-      }
-
-      // Detect audio levels
-      function startAudioDetection() {
-        if (!audioAnalyser) return;
-
-        if (audioDetectionInterval) {
-          clearInterval(audioDetectionInterval);
-        }
-
-        const bufferLength = audioAnalyser.frequencyBinCount;
-        const dataArray = new Uint8Array(bufferLength);
-
-        audioDetectionInterval = setInterval(() => {
-          if (!audioAnalyser) return;
-
-          audioAnalyser.getByteFrequencyData(dataArray);
-          
-          let sum = 0;
-          for (let i = 0; i < bufferLength; i++) {
-            sum += dataArray[i];
-          }
-          const average = sum / bufferLength;
-          const normalizedVolume = average / 255;
-          
-          if (normalizedVolume > AUDIO_THRESHOLD) {
-            // Audio detected - broadcaster mic is ON
-            lastAudioTime = Date.now();
-            silentDuration = 0;
-            
-            if (!broadcasterMicOn) {
-              broadcasterMicOn = true;
-              updateIconAppearance();
-            }
-          } else {
-            // No audio detected
-            const currentTime = Date.now();
-            silentDuration = currentTime - lastAudioTime;
-            
-            // If silent for more than 25 seconds, broadcaster mic is OFF
-            if (silentDuration > SILENT_TIMEOUT) {
-              if (broadcasterMicOn) {
-                broadcasterMicOn = false;
-                updateIconAppearance();
-              }
-            }
-          }
-        }, 1000);
-      }
-
-      // Update icon appearance based on both states
-      function updateIconAppearance() {
-        // Remove all border classes
-        icon.classList.remove('mic-on', 'mic-off');
-        
-        // Add appropriate border class based on broadcaster's mic state
-        if (broadcasterMicOn) {
-          icon.classList.add('mic-on');
-        } else {
-          icon.classList.add('mic-off');
-        }
-        
-        // Set icon name based on user's mute state
-        if (isMuted) {
-          icon.setAttribute("name", "volume-mute");
-        } else {
-          icon.setAttribute("name", "volume-high");
-        }
-      }
-
       // Join Stage Function
       const joinStage = async (token) => {
         stage = new Stage(token, {
@@ -221,11 +77,14 @@
           shouldSubscribeToParticipant: () => SubscribeType.AUDIO,
         });
 
+        // Handle connection state changes
         stage.on(StageEvents.STAGE_CONNECTION_STATE_CHANGED, (state) => {
           console.log("Connection state:", state);
-          if (state === ConnectionState.DISCONNECTED) {
+          if (state === ConnectionState.CONNECTED) {
+            // statusEl.textContent = "Connected - Click to unmute";
+          } else if (state === ConnectionState.DISCONNECTED) {
+            // statusEl.textContent = "Disconnected";
             icon.style.display = "none";
-            cleanupAudioAnalysis();
           }
         });
 
@@ -243,20 +102,14 @@
                 const audioEl = createAudioElement();
                 audioEl.srcObject = mediaStream;
 
-                // Show icon
+                // Show muted icon
                 icon.style.display = "block";
-                icon.classList.add('icon-visible');
-                
-                // Start with broadcaster mic OFF assumption (gray border)
-                broadcasterMicOn = false;
-                updateIconAppearance();
-                
-                // Initialize audio detection
-                initAudioAnalysis(mediaStream);
-                
-                // Try to play
+                // statusEl.textContent = "Connected - Click to unmute";
+
+                // Try to play the audio (may fail due to browser policies)
                 audioEl.play().catch((err) => {
                   console.log("Autoplay prevented:", err);
+                  // statusEl.textContent = "Connected - Click to unmute and play";
                 });
               }
             }
@@ -271,9 +124,8 @@
               (s) => s.streamType === StreamType.AUDIO
             );
             if (removedAudio) {
+              // statusEl.textContent = "No active audio stream";
               icon.style.display = "none";
-              icon.classList.remove('icon-visible');
-              cleanupAudioAnalysis();
               if (audioElement) {
                 audioElement.srcObject = null;
               }
@@ -281,11 +133,23 @@
           }
         );
 
+        // Also handle participant leaving
+        // stage.on(StageEvents.STAGE_PARTICIPANT_LEFT, (participant) => {
+        //   if (!participant.isLocal) {
+        //     statusEl.textContent = "Participant left";
+        //     icon.style.display = "none";
+        //     if (audioElement) {
+        //       audioElement.srcObject = null;
+        //     }
+        //   }
+        // });
+
         try {
           await stage.join();
           console.log("Successfully joined stage");
         } catch (err) {
           console.error("Error joining stage:", err);
+          // statusEl.textContent = "Error connecting: " + err.message;
         }
       };
 
@@ -295,22 +159,31 @@
         return urlParams.get("token");
       };
 
-      // Toggle audio function (user's local mute/unmute)
+      // Toggle audio function
       function toggleAudio() {
         if (!audioElement || !mediaStream) {
+          // statusEl.textContent = "No audio available";
           return;
         }
 
         isMuted = !isMuted;
         audioElement.muted = isMuted;
 
-        // Update icon appearance (border stays same, only icon name changes)
-        updateIconAppearance();
+        if (isMuted) {
+          icon.setAttribute("name", "volume-mute");
+          icon.classList.remove("volume-high");
+          icon.classList.add("volume-mute");
+          // statusEl.textContent = "Muted";
+        } else {
+          icon.setAttribute("name", "volume-high");
+          icon.classList.remove("volume-mute");
+          icon.classList.add("volume-high");
+          // statusEl.textContent = "Playing";
 
-        if (!isMuted) {
-          // Try to play if unmuting
+          // Try to play if not already playing
           audioElement.play().catch((err) => {
             console.log("Play failed:", err);
+            // statusEl.textContent = "Click again to play";
           });
         }
       }
@@ -319,12 +192,12 @@
         const token = getTokenFromUrl();
         if (token) {
           joinStage(token);
+        } else {
+          // statusEl.textContent = "Missing token parameter";
         }
 
         icon.addEventListener("click", toggleAudio);
       });
-
-      window.addEventListener('beforeunload', cleanupAudioAnalysis);
     </script>
   </body>
 </html>
